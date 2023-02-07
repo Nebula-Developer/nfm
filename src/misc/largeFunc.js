@@ -51,7 +51,7 @@ function addShortcutListener(callback, ...keys) {
     document.addEventListener('keydown', keyDown);
     document.addEventListener('keyup', keyUp);
 
-    var id = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    var id = genId();
     shortcuts[id] = { remove: () => {
         document.removeEventListener('keydown', keyDown);
         document.removeEventListener('keyup', keyUp);
@@ -64,9 +64,6 @@ function addShortcutListener(callback, ...keys) {
 function removeShortcutListener(id) {
     if (shortcuts[id]) {
         shortcuts[id].remove();
-    }
+        return true;
+    } else return false;
 }
-
-addShortcutListener(() => {
-    console.log("Keybind");
-}, 'Control', 'Shift', 't', 'inOrder');
