@@ -15,29 +15,40 @@ var tabView = $("#tab-view");
  * @param {string} directory
  */
 function createTab(directory) {
+    directory = formatPath(directory);
+    console.log(directory);
     var tabID = genId();
 
     var tab = $(`<div class="tab" tab-id="${tabID}"></div>`);
-    var tabTitle = $(`<input type="text" class="tab-title" value="${directory}"></input>`);
+    var tabTopbar = $(`<div class="tab-topbar"></div>`);
+    var tabTitle = $(`<input type="text" class="tab-title" value="${formatFancyPath(directory)}"></input>`);
+    var tabBack = $(`<i class="fas fa-arrow-left tab-back"></i>`);
+
     tabTitle.on('keydown', (event) => {
         if (event.key === 'Enter') {
             tabTitle.trigger('blur');
-            naviagteTab(tabID, tabTitle.val());
+            navigateTab(tabID, tabTitle.val());
+        }
+    });
+
+    tabBack.on('click', () => {
+        var parent = tabs[tabID];
+        if (parent) {
+            var parentDirectory = path.dirname(parent);
+            navigateTab(tabID, parentDirectory);
         }
     });
 
     var tabContent = $(`<div class="tab-content"></div>`);
-    tab.append(tabTitle);
+    tabTopbar.append(tabBack);
+    tabTopbar.append(tabTitle);
+    tab.append(tabTopbar);
     tab.append(tabContent);
     
-    var fileListing = files.listDirectory(directory);
-    for (var i = 0; i < fileListing.length; i++) {
-        var file = fileListing[i];
-        var fileDiv = createFile(file);
-        tabContent.append(fileDiv);
-    }
-
     tabView.append(tab);
+    tabs[tabID] = directory;
+
+    navigateTab(tabID, directory);
 }
 
 /**
@@ -45,7 +56,7 @@ function createTab(directory) {
  * @param {string} tabID
  * @param {string} directory
  */
-function naviagteTab(tabID, directory) {
+function navigateTab(tabID, directory) {
     var tab = $(`.tab[tab-id="${tabID}"]`);
     var tabContent = tab.find('.tab-content');
     tabContent.empty();
@@ -54,10 +65,15 @@ function naviagteTab(tabID, directory) {
     for (var i = 0; i < fileListing.length; i++) {
         var file = fileListing[i];
         var fileDiv = createFile(file);
+        addFileClickListener(fileDiv, file, tabID);
         tabContent.append(fileDiv);
     }
 
-    tab.find('.tab-title').val(directory);
+    tab.find('.tab-title').val(formatFancyPath(directory));
+    tabs[tabID] = directory;
+
+    var isRoot = directory === '/' || /^[A-Z]:\\$/.test(directory);
+    tab.find('.tab-back').toggleClass('tab-back-inactive', isRoot);
 }
 
 var isMacOS = process.platform === 'darwin';
@@ -84,6 +100,58 @@ function createFile(file) {
     fileDiv.append(fileName);
 
     return fileDiv;
+}
+
+/**
+ * Add a navigation/selection listener to a file element
+ * @param {$} fileElm
+ * @param {files.File} file
+ * @param {string} tabID
+ */
+function addFileClickListener(fileElm, file, tabID) {
+    var doubleClick = false;
+    fileElm.on('click', doubleClickListener((e) => {
+        if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            selectedFiles = [];
+            $('.file').removeClass('selected');
+        }
+
+        var selected = isSelected(file, tabID);
+        if (selected) {
+            unselectFile(file, tabID);
+            fileElm.removeClass('selected');
+        } else {
+            selectFile(file, tabID);
+            fileElm.addClass('selected');
+        }
+    }, (e) => {
+        if (file.directory) {
+            if (e.ctrlKey || e.metaKey) {
+                createTab(file.path);
+            } else {
+                navigateTab(tabID, file.path);
+            }
+        } else {
+            openFile(file.path);
+        }
+    }, 500));
+}
+
+function selectFile(file, tabID) {
+    selectedFiles.push({ tab: tabID, file: file.path });
+}
+
+function unselectFile(file, tabID) {
+    var index = selectedFiles.findIndex((f) => {
+        return f.tab == tabID && f.file == file.path;
+    });
+    selectedFiles.splice(index, 1);
+}
+
+function isSelected(file, tabID) {
+    return selectedFiles.findIndex((f) => {
+        return f.tab == tabID && f.file == file.path;
+    }) != -1;
 }
 
 /**

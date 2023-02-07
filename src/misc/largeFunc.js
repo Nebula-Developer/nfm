@@ -1,3 +1,5 @@
+const child_process = require('child_process');
+
 var shortcuts = { };
 
 function addShortcutListener(callback, ...keys) {
@@ -66,4 +68,14 @@ function removeShortcutListener(id) {
         shortcuts[id].remove();
         return true;
     } else return false;
+}
+
+var isMacOS = process.platform === 'darwin';
+
+function openFile(file) {
+    if (isMacOS) {
+        child_process.exec(`open "${file}"`);
+    } else {
+        child_process.exec(`start "" "${file}"`);
+    }
 }

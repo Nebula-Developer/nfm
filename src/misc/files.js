@@ -12,11 +12,12 @@ var isMacOS = process.platform === 'darwin';
  */
 function listDirectory(directory) {
     var files = [];
+    directory = formatPath(directory);
 
     fs.readdirSync(directory).forEach(file => {
         var filePath = path.join(directory, file);
         if (!fs.existsSync(filePath)) return;
-        
+
         var stats = fs.statSync(filePath);
         var extra = { };
         var isApp = isMacOS && stats.isDirectory() && file.endsWith('.app');

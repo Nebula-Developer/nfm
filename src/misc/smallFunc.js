@@ -1,2 +1,4 @@
 function doubleClickListener(click1 = null, click2 = null, time = 300) { var timeout = null; return function(e) { if (timeout) { clearTimeout(timeout); timeout = null; if (click2) click2(e); } else { if (click1) click1(e); timeout = setTimeout(() => { timeout = null; }, time); }}}
 function genId() { return Date.now() + ':' + Math.random().toString(36).substring(2, 15) + ':' + Math.random().toString(36).substring(2, 15); }
+function formatPath(path) { var home = process.env.HOME; path = path.replace('~', home); if (isMacOS) path = path.replace('\\', '/'); else path = path.replace('/', '\\');  return path; }
+function formatFancyPath(path) { path = formatPath(path); var home = process.env.HOME; path = path.replaceAll(home, '~'); return path; }
