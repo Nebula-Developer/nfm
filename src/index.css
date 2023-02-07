@@ -6,27 +6,38 @@ body {
   overflow: hidden;
 }
 
-.tab li {
+.file {
   padding: 10px;
   list-style: none;
   user-select: none;
   cursor: default;
+  display: flex;
+  align-items: center;
+  flex-direction: row-reverse;
+  justify-content: start;
 }
 
-.tab li i {
+img.file-icon {
+  margin-right: 10px;
+  width: auto;
+  height: 50px;
+}
+
+div.file-icon i {
+  font-size: 30px;
   margin-right: 10px;
 }
 
-.tab li:hover {
+.file:hover {
   background: #eee;
 }
 
-.tab li.selected {
+.file.selected {
   background: #eee;
   border-left: 5px solid #2196f3;
 }
 
-#fileView {
+#tab-view {
   display: flex;
   background: white;
   position: relative;
@@ -36,39 +47,34 @@ body {
 
 .tab {
   width: 100%;
-  height: calc(100% - 50px);
-  margin: 10px;
+  height: 100%;
   position: relative;
+  overflow: hidden;
 }
 
-.tabContent {
+.tab-content {
   width: 100%;
-  height: 100%;
-  margin-top: 30px;
+  height: calc(100% - 50px);
+  margin-top: 50px;
   overflow-y: auto;
 }
 
-.tabTitle {
+.tab-title {
   position: absolute;
   top: 0;
   width: 100%;
   height: 30px;
-  border-bottom: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  justify-content: left;
   border: none;
-  background: none;
+  border-bottom: 1px solid #eee;
   outline: none;
   font-size: 16px;
+  padding: 10px;
+  background: white;
 }
 
 .tab.selected {
   background: rgb(249, 249, 249);
-}
-
-.fileSize {
-  margin-left: 10px;
-  font-size: 12px;
-}
-
-.fileSize::after {
-  content: ' bytes';
 }
