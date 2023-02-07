@@ -2,6 +2,8 @@ const { ipcRenderer } = require('electron');
 const $ = require('jquery');
 const path = require('path');
 const fs = require('fs');
+const iconutil = require('iconutil');
+
 function doubleClickListener(click1 = null, click2 = null, time = 300) {
     var timeout = null;
     return function(e) {
@@ -38,7 +40,6 @@ function listDirectory(tab, directory) {
         li.textContent = file.name;
         var icon = document.createElement('i');
         icon.className = file.type == 'directory' ? 'fas fa-folder' : 'fa-solid fa-file';
-        li.prepend(icon);
         
         if (file.type == 'file') {
             var fileSize = document.createElement('span');
@@ -61,24 +62,17 @@ function listDirectory(tab, directory) {
             if (!fs.existsSync('src/icons')) fs.mkdirSync('src/icons');
 
             if (fs.existsSync(pathToIcon)) {
-                var iconData = fs.readFileSync(pathToIcon);
-                var localPath = path.join("src/icons", pathToIcon.substring(1).replaceAll("/", '-').replaceAll("\\", '_'));
-                if (!fs.existsSync(localPath)) {
-                    fs.writeFileSync(localPath, iconData);
-                } else {
-                    var iconDictionary = { };
-                    iconDictionary[localPath] = iconData;
-                }
-
-                var icon = document.createElement('img');
-                icon.src = localPath;
-                icon.type = "image/png";
-                icon.alt = "App Icon";
-                icon.className = 'appIcon';
-
-                li.prepend(icon);
+                iconutil.toIconset(pathToIcon, (err, iconset) => {
+                    if (err) return console.error(err);
+                    var icon = document.createElement('img');
+                    var icon32 = iconset['icon_32x32.png'];
+                    var base64 = 'data:image/png;base64,' + icon32.toString('base64');
+                    var img = document.createElement('img');
+                    img.src = base64;
+                    li.prepend(img);
+                });
             }
-        }
+        } else li.prepend(icon);
     
         if (file.type == 'directory') {
             li.addEventListener('mousedown', doubleClickListener((e) => {
@@ -221,7 +215,3 @@ $(document).on('keydown', (e) => {
         }
     }
 });
-
-function icnsToPng(icnsBase64) {
-    return icnsBase64.replaceAll('icns', 'PNG');
-}
