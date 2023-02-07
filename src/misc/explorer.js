@@ -2,6 +2,7 @@ const files = require('./files');
 const $ = require('jquery');
 const path = require('path');
 const fs = require('fs');
+const { ipcRenderer } = require('electron');
 
 var tabs = {};
 var selectedFiles = [];
@@ -125,7 +126,7 @@ function addFileClickListener(fileElm, file, tabID) {
             fileElm.addClass('selected');
         }
     }, (e) => {
-        if (file.directory) {
+        if (file.directory && !file.name.toString().endsWith('.app')) {
             if (e.ctrlKey || e.metaKey) {
                 createTab(file.path);
             } else {
@@ -135,7 +136,30 @@ function addFileClickListener(fileElm, file, tabID) {
             openFile(file.path);
         }
     }, 500));
+
+    // Also add a right click menu for .app's that allows you to 'Show Package Contents'
+    if (file.name.toString().endsWith('.app')) {
+        fileElm.on('contextmenu', (e) => {
+            e.preventDefault();
+            ipcRenderer.send('show-app-context-menu', { x: e.clientX, y: e.clientY, file: file.path, tab: tabID });
+        });
+    }
+
+    // When we drag a file to another program, it should think we're dragging the actual file, not the div
+    fileElm[0].addEventListener('dragstart', (ev) => {
+        ev.dataTransfer.effectAllowed = 'copy'
+        ev.preventDefault()
+        ipcRenderer.send('ondragstart', file.path);
+    })
+
+    // Enable dragging
+    fileElm.attr('draggable', true);
 }
+
+// On navigate from mainWindow.webContents.send('navigate', args.file);
+ipcRenderer.on('navigate', (event, args) => {
+    navigateTab(args.tab, args.file);
+});
 
 function selectFile(file, tabID) {
     selectedFiles.push({ tab: tabID, file: file.path });

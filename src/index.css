@@ -134,6 +134,10 @@ div.file-icon i {
   background: #5a5a76;
 }
 
+::-webkit-scrollbar-corner {
+  background: #1e1e1e;
+}
+
 .tab-back {
   padding: 0 20px;
   height: 100%;
