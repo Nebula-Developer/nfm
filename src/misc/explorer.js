@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { ipcRenderer } = require('electron');
 
+var activeTab = null;
 var tabs = {};
 var selectedFiles = [];
 // Selected example:
@@ -20,10 +21,22 @@ function createTab(directory) {
     var tabID = genId();
 
     var tab = $(`<div class="tab" tab-id="${tabID}"></div>`);
+
+    tab.on('click', () => {
+        activeTab = tabID;
+        $(".tab").removeClass('active');
+        tab.addClass('active');
+    });
+
+    activeTab = tabID;
+    $(".tab").removeClass('active');
+    tab.addClass('active');
+
     var tabTopbar = $(`<div class="tab-topbar"></div>`);
     var tabTitle = $(`<input type="text" class="tab-title" value="${formatFancyPath(directory)}"></input>`);
-    var tabBack = $(`<i class="fas fa-arrow-left tab-back"></i>`);
-    var tabClose = $(`<i class="fas fa-times tab-close"></i>`);
+    var tabBack = $(`<i class="fas fa-arrow-left tab-back topbar-button"></i>`);
+    var tabForward = $(`<i class="fas fa-arrow-right tab-forward topbar-button"></i>`);
+    var tabClose = $(`<i class="fas fa-times tab-close topbar-button"></i>`);
 
     tabTitle.on('keydown', (event) => {
         if (event.key === 'Enter') {
@@ -33,27 +46,42 @@ function createTab(directory) {
     });
 
     tabBack.on('click', () => {
-        var parent = tabs[tabID];
-        if (parent) {
-            var parentDirectory = path.dirname(parent);
-            navigateTab(tabID, parentDirectory);
+        var history = tabs[tabID].history;
+        var index = history.lastIndexOf(tabs[tabID].location);
+        if (index > 0) {
+            var previous = history[index - 1];
+            navigateTab(tabID, previous, false);
+        }
+    });
+
+    tabForward.on('click', () => {
+        var history = tabs[tabID].history;
+        var index = history.lastIndexOf(tabs[tabID].location);
+        
+        if (index < history.length - 1) {
+            var next = history[index + 1];
+            navigateTab(tabID, next, false);
         }
     });
 
     tabClose.on('click', () => {
-        tab.remove();
-        delete tabs[tabID];
+        closeTab(tabID);
     });
 
     var tabContent = $(`<div class="tab-content"></div>`);
     tabTopbar.append(tabBack);
+    tabTopbar.append(tabForward);
     tabTopbar.append(tabTitle);
     tabTopbar.append(tabClose);
     tab.append(tabTopbar);
     tab.append(tabContent);
     
     tabView.append(tab);
-    tabs[tabID] = directory;
+
+    tabs[tabID] = {
+        location: directory,
+        history: []
+    }
 
     handleTabWindowDrop(tabContent[0], tabID);
     navigateTab(tabID, directory);
@@ -64,27 +92,41 @@ function createTab(directory) {
  * @param {string} tabID
  * @param {string} directory
  */
-function navigateTab(tabID, directory) {
+function navigateTab(tabID, directory, addToHistory = true) {
     directory = formatPath(directory);
+    var beforeLocation = tabs[tabID].location;
 
     var tab = $(`.tab[tab-id="${tabID}"]`);
     var tabContent = tab.find('.tab-content');
     tabContent.empty();
 
-    files.listDirectory(directory).then((fileListing) => {
+    files.listDirectory(directory).then(async (fileListing) => {
         for (var i = 0; i < fileListing.length; i++) {
             var file = fileListing[i];
-            var fileDiv = createFile(file);
+            var fileDiv = await createFile(file);
+            console.log(fileDiv);
             addFileClickListener(fileDiv, file, tabID);
             tabContent.append(fileDiv);
         }
     });
 
     tab.find('.tab-title').val(formatFancyPath(directory));
-    tabs[tabID] = directory;
+    tabs[tabID].location = directory;
+    if (addToHistory) {
+        var index = tabs[tabID].history.lastIndexOf(beforeLocation);
+        // Remove all history after the previous location
+        tabs[tabID].history.splice(index + 1);
+        tabs[tabID].history.push(directory);
+    }
 
-    var isRoot = directory === '/' || /^[A-Z]:\\$/.test(directory);
-    tab.find('.tab-back').toggleClass('tab-back-inactive', isRoot);
+    // Check if history is available going backwards, if not add tab-back-inactive
+    var history = tabs[tabID].history;
+    var index = history.lastIndexOf(tabs[tabID].location);
+    if (index <= 0) {
+        tab.find('.tab-back').addClass('tab-back-inactive');
+    } else {
+        tab.find('.tab-back').removeClass('tab-back-inactive');
+    }
     addTabDirChangeListener(tabID, directory);
 }
 
@@ -96,9 +138,11 @@ var isMacOS = process.platform === 'darwin';
  * @returns {jQuery}
  */
 function createFile(file) {
-    var fileDiv = $(`<div class="file ${file.directory ? "directory" : ""} " file-path="${file.path}"></div>`);
-    var fileName = $(`<div class="file-name">${file.name}</div>`);
-    getThumbnail(file).then((fileThumbnail) => {
+    return new Promise(async (resolve, reject) => {
+        var fileDiv = $(`<div class="file ${file.directory ? "directory" : ""} " file-path="${file.path}"></div>`);
+        var fileName = $(`<div class="file-name">${file.name}</div>`);
+        var fileThumbnail = await getThumbnail(file);
+        
         if (!fileThumbnail) return;
         if (fileThumbnail.startsWith('data:image/png;base64,')) {
             var fileIcon = $(`<img class="file-icon" src="${fileThumbnail}"></img>`);
@@ -107,11 +151,11 @@ function createFile(file) {
             var fileIcon = $(`<div class="file-icon">${fileThumbnail}</div>`);
             fileDiv.append(fileIcon);
         }
+
+        fileDiv.append(fileName);
+
+        resolve(fileDiv);
     });
-
-    fileDiv.append(fileName);
-
-    return fileDiv;
 }
 
 /**
@@ -246,8 +290,8 @@ var appIconCache = {};
  * @param {string} file
  * @returns {string} Base64 encoded image
  */ 
-function getThumbnail(file) {
-    return new Promise((resolve, reject) => {
+function getThumbnail(file, sleep = true) {
+    return new Promise(async (resolve, reject) => {
         var ext = path.extname(file.name).toLowerCase().trim().substring(1);
 
         // if .app
@@ -264,7 +308,7 @@ function getThumbnail(file) {
 
             var iconPath = path.join(file.path, 'Contents', 'Resources', iconFile);
 
-            var pngOutput = files.icnsToPng(iconPath).then((png) => {
+            var pngOutput = files.icnsToPng(iconPath).then(async (png) => {
                 appIconCache[file.path] = png;
                 resolve(png);
             }).catch((err) => {
@@ -299,7 +343,7 @@ function getThumbnail(file) {
                     return;
                 }
             }
-
+            
             resolve(`<i class="fas fa-file"></i>`);
         }
     });
@@ -313,37 +357,45 @@ function isImage(name) {
 
 function refreshTab(tabID) {
     if (!tabs[tabID]) return;
-    var directory = tabs[tabID];
+    var directory = tabs[tabID].location;
     var tab = $(`.tab[tab-id="${tabID}"]`);
     var tabContent = tab.find('.tab-content');
     
-    files.listDirectory(directory).then((fileListing) => {
+    files.listDirectory(directory).then(async (fileListing) => {
         tabContent.empty();
         for (var i = 0; i < fileListing.length; i++) {
             var file = fileListing[i];
-            var fileDiv = createFile(file);
+            var fileDiv = await createFile(file);
             addFileClickListener(fileDiv, file, tabID);
             tabContent.append(fileDiv);
         }
     })
 
     tab.find('.tab-title').val(formatFancyPath(directory));
-    tabs[tabID] = directory;
+    tabs[tabID].location = directory;
 
-    var isRoot = directory === '/' || /^[A-Z]:\\$/.test(directory);
-    tab.find('.tab-back').toggleClass('tab-back-inactive', isRoot);
+    // Check if history is available going backwards, if not add tab-back-inactive
+    var history = tabs[tabID].history;
+    var index = history.lastIndexOf(tabs[tabID].location);
+    if (index <= 0) {
+        tab.find('.tab-back').addClass('tab-back-inactive');
+    } else {
+        tab.find('.tab-back').removeClass('tab-back-inactive');
+    }
 }
 
 async function addTabDirChangeListener(tabID, directory) {
     var fileFetched = [];
-    while (tabs[tabID] && tabs[tabID] == directory) {
+    var first = 0;
+    while (tabs[tabID] && tabs[tabID].location == directory) {
         // Dont use files.listDirectory because it's slow,
         // just use fs.readdir
         var newFiles = fs.readdirSync(directory);
         
-        if (newFiles.length != fileFetched.length) {
-            refreshTab(tabID);
+        if (newFiles.length != fileFetched.length || $(`.tab[tab-id="${tabID}"]`).find('.tab-content').children().length != newFiles.length) {
             fileFetched = newFiles;
+            if (first < 2) first++;
+            else refreshTab(tabID);
         }
 
         await sleep(1000);
@@ -358,7 +410,7 @@ function refreshAllTabs() {
 
 function handleTabWindowDrop(tabContent, tabID) {
     tabContent.addEventListener('drop', (ev) => {
-        var tabDir = tabs[tabID];
+        var tabDir = tabs[tabID].location;
         
         for (var i = 0; i < ev.dataTransfer.files.length; i++) {
             var file = ev.dataTransfer.files[i].path;
@@ -376,6 +428,43 @@ function handleTabWindowDrop(tabContent, tabID) {
         ev.preventDefault();
     });
 }
+
+function closeTab(tabID) {
+    var tab = $(`.tab[tab-id="${tabID}"]`);
+    tab.remove();
+    delete tabs[tabID];
+    var tabKeys = Object.keys(tabs);
+    if (tabKeys.length > 0) {
+        var newActiveTab = tabKeys[0];
+        $(`.tab[tab-id="${newActiveTab}"]`).trigger('click');
+    } else {
+        createTab('~');
+    }
+}
+
+$(document).on('keydown', (ev) => {
+    if (ev.ctrlKey || ev.metaKey) {
+        if (ev.key == 'w') {
+            ev.preventDefault();
+            var activeTab = $('.tab.active');
+            if (activeTab.length > 0) {
+                var tabID = activeTab.attr('tab-id');
+                closeTab(tabID);
+            }
+        }
+    }
+    else if (ev.key == 'Backspace') {
+        var activeTab = $('.tab.active');
+        if (activeTab.length > 0) {
+            var tabID = activeTab.attr('tab-id');
+            var tabDir = tabs[tabID].location;
+            var parentDir = path.dirname(tabDir);
+            if (parentDir != tabDir) {
+                navigateTab(tabID, parentDir);
+            }
+        }
+    }
+});
 
 createTab('~/Downloads');
 
