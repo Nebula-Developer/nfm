@@ -11,35 +11,37 @@ var isMacOS = process.platform === 'darwin';
  * @returns {File[]}
  */
 function listDirectory(directory) {
-    var files = [];
-    directory = formatPath(directory);
+    return new Promise((resolve, reject) => {
+        var files = [];
+        directory = formatPath(directory);
 
-    fs.readdirSync(directory).forEach(file => {
-        var filePath = path.join(directory, file);
-        if (!fs.existsSync(filePath)) return;
+        fs.readdirSync(directory).forEach(file => {
+            var filePath = path.join(directory, file);
+            if (!fs.existsSync(filePath)) return;
 
-        var stats = fs.statSync(filePath);
-        var extra = { };
-        var isApp = isMacOS && stats.isDirectory() && file.endsWith('.app');
+            var stats = fs.statSync(filePath);
+            var extra = { };
+            var isApp = isMacOS && stats.isDirectory() && file.endsWith('.app');
 
-        if (isApp) {
-            var infoPlist = path.join(filePath, 'Contents', 'Info.plist');
-            try {
-                var plistRead = plist.readFileSync(infoPlist);
-                extra['plist'] = plistRead;
-            } catch { }
-        }
+            if (isApp) {
+                var infoPlist = path.join(filePath, 'Contents', 'Info.plist');
+                try {
+                    var plistRead = plist.readFileSync(infoPlist);
+                    extra['plist'] = plistRead;
+                } catch { }
+            }
 
-        files.push({
-            name: file,
-            path: filePath,
-            directory: stats.isDirectory(),
-            stats,
-            extra
+            files.push({
+                name: file,
+                path: filePath,
+                directory: stats.isDirectory(),
+                stats,
+                extra
+            });
         });
-    });
 
-    return files;
+        resolve(files);
+    });
 }
 
 class File {

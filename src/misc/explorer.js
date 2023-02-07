@@ -17,13 +17,13 @@ var tabView = $("#tab-view");
  */
 function createTab(directory) {
     directory = formatPath(directory);
-    console.log(directory);
     var tabID = genId();
 
     var tab = $(`<div class="tab" tab-id="${tabID}"></div>`);
     var tabTopbar = $(`<div class="tab-topbar"></div>`);
     var tabTitle = $(`<input type="text" class="tab-title" value="${formatFancyPath(directory)}"></input>`);
     var tabBack = $(`<i class="fas fa-arrow-left tab-back"></i>`);
+    var tabClose = $(`<i class="fas fa-times tab-close"></i>`);
 
     tabTitle.on('keydown', (event) => {
         if (event.key === 'Enter') {
@@ -40,15 +40,22 @@ function createTab(directory) {
         }
     });
 
+    tabClose.on('click', () => {
+        tab.remove();
+        delete tabs[tabID];
+    });
+
     var tabContent = $(`<div class="tab-content"></div>`);
     tabTopbar.append(tabBack);
     tabTopbar.append(tabTitle);
+    tabTopbar.append(tabClose);
     tab.append(tabTopbar);
     tab.append(tabContent);
     
     tabView.append(tab);
     tabs[tabID] = directory;
 
+    handleTabWindowDrop(tabContent[0], tabID);
     navigateTab(tabID, directory);
 }
 
@@ -58,23 +65,27 @@ function createTab(directory) {
  * @param {string} directory
  */
 function navigateTab(tabID, directory) {
+    directory = formatPath(directory);
+
     var tab = $(`.tab[tab-id="${tabID}"]`);
     var tabContent = tab.find('.tab-content');
     tabContent.empty();
 
-    var fileListing = files.listDirectory(directory);
-    for (var i = 0; i < fileListing.length; i++) {
-        var file = fileListing[i];
-        var fileDiv = createFile(file);
-        addFileClickListener(fileDiv, file, tabID);
-        tabContent.append(fileDiv);
-    }
+    files.listDirectory(directory).then((fileListing) => {
+        for (var i = 0; i < fileListing.length; i++) {
+            var file = fileListing[i];
+            var fileDiv = createFile(file);
+            addFileClickListener(fileDiv, file, tabID);
+            tabContent.append(fileDiv);
+        }
+    });
 
     tab.find('.tab-title').val(formatFancyPath(directory));
     tabs[tabID] = directory;
 
     var isRoot = directory === '/' || /^[A-Z]:\\$/.test(directory);
     tab.find('.tab-back').toggleClass('tab-back-inactive', isRoot);
+    addTabDirChangeListener(tabID, directory);
 }
 
 var isMacOS = process.platform === 'darwin';
@@ -85,7 +96,7 @@ var isMacOS = process.platform === 'darwin';
  * @returns {jQuery}
  */
 function createFile(file) {
-    var fileDiv = $(`<div class="file"></div>`);
+    var fileDiv = $(`<div class="file ${file.directory ? "directory" : ""} " file-path="${file.path}"></div>`);
     var fileName = $(`<div class="file-name">${file.name}</div>`);
     getThumbnail(file).then((fileThumbnail) => {
         if (!fileThumbnail) return;
@@ -111,7 +122,8 @@ function createFile(file) {
  */
 function addFileClickListener(fileElm, file, tabID) {
     var doubleClick = false;
-    fileElm.on('click', doubleClickListener((e) => {
+
+    fileElm.on('mousedown', doubleClickListener((e) => {
         if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
             selectedFiles = [];
             $('.file').removeClass('selected');
@@ -150,10 +162,53 @@ function addFileClickListener(fileElm, file, tabID) {
         ev.dataTransfer.effectAllowed = 'copy'
         ev.preventDefault()
         ipcRenderer.send('ondragstart', file.path);
-    })
+        ev.dataTransfer.setData('text/plain', file.path);
+    });
 
+    fileElm[0].addEventListener('dragover', (ev) => {
+        if (!ev.target.classList.contains('directory')) return;
+        ev.preventDefault();
+        var target = ev.target;
+        if (target && target.classList.contains('directory')) target.classList.add('file-dragover');
+    });
+    
+    fileElm[0].addEventListener('dragleave', (ev) => {
+        if (!ev.target.classList.contains('directory')) return;
+        ev.preventDefault();
+        var target = ev.target;
+        if (target && target.classList.contains('directory')) target.classList.remove('file-dragover');
+    });
+
+    fileElm[0].addEventListener('drop', (ev) => {
+        if (!ev.target.classList.contains('directory')) return;
+        ev.preventDefault();
+        if (ev.target && ev.target.classList.contains('directory')) ev.target.classList.remove('file-dragover');
+
+        // Loop through all selectedFiles and copy them to the target directory
+        for (var i = 0; i < selectedFiles.length; i++) {
+            moveFile(selectedFiles[i].file, file.path);
+        }
+
+        refreshAllTabs();
+    });
+        
     // Enable dragging
     fileElm.attr('draggable', true);
+}
+
+function moveFile(from, to, promptForOverwrite = true) {
+    if (!fs.existsSync(from) || !fs.lstatSync(from).isFile() || !fs.existsSync(to) || !fs.lstatSync(to).isDirectory()) return;
+
+    if (promptForOverwrite && fs.existsSync(path.join(to, path.basename(from)))) {
+        var overwrite = confirm("File already exists, overwrite?");
+        if (!overwrite) return;
+    }
+
+    fs.rename(from, path.join(to, path.basename(from)), (err) => {
+        if (err) {
+            alert("Error moving file: " + err);
+        }
+    });
 }
 
 // On navigate from mainWindow.webContents.send('navigate', args.file);
@@ -172,11 +227,19 @@ function unselectFile(file, tabID) {
     selectedFiles.splice(index, 1);
 }
 
+function unselectAllFiles(tabID) {
+    selectedFiles = selectedFiles.filter((f) => {
+        return f.tab != tabID;
+    });
+}
+
 function isSelected(file, tabID) {
     return selectedFiles.findIndex((f) => {
         return f.tab == tabID && f.file == file.path;
     }) != -1;
 }
+
+var appIconCache = {};
 
 /**
  * Get a thumbnail for a file
@@ -189,15 +252,20 @@ function getThumbnail(file) {
 
         // if .app
         if (ext == 'app' && file.extra.plist) {
+            if (appIconCache[file.path]) {
+                resolve(appIconCache[file.path]);
+                return;
+            }
+
             var plist = file.extra.plist;
             var iconFile = plist.CFBundleIconFile;
             if (!iconFile) { return null; } 
             if (!iconFile.endsWith('.icns')) iconFile += '.icns';
 
-            console.log(file.name + " Icon: " + iconFile);
             var iconPath = path.join(file.path, 'Contents', 'Resources', iconFile);
 
             var pngOutput = files.icnsToPng(iconPath).then((png) => {
+                appIconCache[file.path] = png;
                 resolve(png);
             }).catch((err) => {
                 console.log("Fail in fetching icns file for: " + file.name, err);
@@ -210,9 +278,6 @@ function getThumbnail(file) {
             resolve('data:image/png;base64,' + base64);
         } else {
             if (file.directory) { resolve("<i class='fas fa-folder'></i>"); return; }
-            if (file.name.startsWith('.')) {
-                console.log(file.stats.isFile())
-            }
 
             var fileDictionary = {
                 "fas fa-file-archive": ['zip', 'rar', '7z', 'tar', 'gz', 'xz', 'bz2', 'pkg', 'dmg'],
@@ -246,9 +311,74 @@ function isImage(name) {
     return extensions.includes(ext);
 }
 
-createTab('/Users/nebuladev/Downloads');
+function refreshTab(tabID) {
+    if (!tabs[tabID]) return;
+    var directory = tabs[tabID];
+    var tab = $(`.tab[tab-id="${tabID}"]`);
+    var tabContent = tab.find('.tab-content');
+    
+    files.listDirectory(directory).then((fileListing) => {
+        tabContent.empty();
+        for (var i = 0; i < fileListing.length; i++) {
+            var file = fileListing[i];
+            var fileDiv = createFile(file);
+            addFileClickListener(fileDiv, file, tabID);
+            tabContent.append(fileDiv);
+        }
+    })
+
+    tab.find('.tab-title').val(formatFancyPath(directory));
+    tabs[tabID] = directory;
+
+    var isRoot = directory === '/' || /^[A-Z]:\\$/.test(directory);
+    tab.find('.tab-back').toggleClass('tab-back-inactive', isRoot);
+}
+
+async function addTabDirChangeListener(tabID, directory) {
+    var fileFetched = [];
+    while (tabs[tabID] && tabs[tabID] == directory) {
+        // Dont use files.listDirectory because it's slow,
+        // just use fs.readdir
+        var newFiles = fs.readdirSync(directory);
+        
+        if (newFiles.length != fileFetched.length) {
+            refreshTab(tabID);
+            fileFetched = newFiles;
+        }
+
+        await sleep(1000);
+    }
+}
+
+function refreshAllTabs() {
+    for (var tabID in tabs) {
+        refreshTab(tabID);
+    }
+}
+
+function handleTabWindowDrop(tabContent, tabID) {
+    tabContent.addEventListener('drop', (ev) => {
+        var tabDir = tabs[tabID];
+        
+        for (var i = 0; i < ev.dataTransfer.files.length; i++) {
+            var file = ev.dataTransfer.files[i].path;
+            moveFile(file, tabDir);
+        }
+
+        refreshAllTabs();
+    });
+
+    tabContent.addEventListener('dragover', (ev) => {
+        ev.preventDefault();
+    });
+
+    tabContent.addEventListener('dragenter', (ev) => {
+        ev.preventDefault();
+    });
+}
+
+createTab('~/Downloads');
 
 module.exports = {
     createTab
 };
-

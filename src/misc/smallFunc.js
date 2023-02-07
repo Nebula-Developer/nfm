@@ -2,3 +2,4 @@ function doubleClickListener(click1 = null, click2 = null, time = 300) { var tim
 function genId() { return Date.now() + ':' + Math.random().toString(36).substring(2, 15) + ':' + Math.random().toString(36).substring(2, 15); }
 function formatPath(path) { var home = process.env.HOME; path = path.replace('~', home); if (isMacOS) path = path.replace('\\', '/'); else path = path.replace('/', '\\');  return path; }
 function formatFancyPath(path) { path = formatPath(path); var home = process.env.HOME; path = path.replaceAll(home, '~'); return path; }
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
