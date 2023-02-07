@@ -1,7 +1,7 @@
 const { ipcRenderer } = require('electron');
 const $ = require('jquery');
 const path = require('path');
-
+const fs = require('fs');
 function doubleClickListener(click1 = null, click2 = null, time = 300) {
     var timeout = null;
     return function(e) {
@@ -36,8 +36,48 @@ function listDirectory(tab, directory) {
     files.forEach(file => {
         const li = document.createElement('li');
         li.textContent = file.name;
+        var icon = document.createElement('i');
+        icon.className = file.type == 'directory' ? 'fas fa-folder' : 'fa-solid fa-file';
+        li.prepend(icon);
+        
         if (file.type == 'file') {
-            li.textContent += ' (' + Math.round((file.size * 100) / 1024) / 100 + ' KB)';
+            var fileSize = document.createElement('span');
+            fileSize.className = 'fileSize';
+            fileSize.textContent = file.size;
+            li.append(fileSize);
+        }
+
+        if (file.type == 'directory' && file.name.endsWith('.app')) {
+            var pathToIconDirectory = path.resolve(directory, file.name, 'Contents', 'Resources');
+            // Find first icns
+            var pathToIcon = null;
+            fs.readdirSync(pathToIconDirectory).forEach(file => {
+                if (file.endsWith('.icns')) {
+                    pathToIcon = path.resolve(pathToIconDirectory, file);
+                    return;
+                }
+            });
+
+            if (!fs.existsSync('src/icons')) fs.mkdirSync('src/icons');
+
+            if (fs.existsSync(pathToIcon)) {
+                var iconData = fs.readFileSync(pathToIcon);
+                var localPath = path.join("src/icons", pathToIcon.substring(1).replaceAll("/", '-').replaceAll("\\", '_'));
+                if (!fs.existsSync(localPath)) {
+                    fs.writeFileSync(localPath, iconData);
+                } else {
+                    var iconDictionary = { };
+                    iconDictionary[localPath] = iconData;
+                }
+
+                var icon = document.createElement('img');
+                icon.src = localPath;
+                icon.type = "image/png";
+                icon.alt = "App Icon";
+                icon.className = 'appIcon';
+
+                li.prepend(icon);
+            }
         }
     
         if (file.type == 'directory') {
@@ -85,7 +125,7 @@ function listDirectory(tab, directory) {
     tabContent.prepend(li);
 }
 
-createFileTab(process.cwd());
+createFileTab('/Applications');
 
 function handleFileClick(event, file) {
     
@@ -93,6 +133,7 @@ function handleFileClick(event, file) {
 
 function createFileTab(folder) {
     var newTab = $("<div class='tab'></div>");
+    var tabId = Date.now() + "-" + Math.round(Math.random() * 100000);
     var parent = $("#fileView");
     var tabContent = $("<div class='tabContent'></div>");
     var tabTitle = $("<input type='text' class='tabTitle'></input>");
@@ -117,6 +158,46 @@ function createFileTab(folder) {
     });
 }
 
+function addShortcutListener(callback, ...keys) {
+    var keyMap = {};
+    keys = keys.map(key => key.toLowerCase());
+    keys.forEach(key => { keyMap[key] = false; });
+
+    document.addEventListener('keydown', (e) => {
+        var key = e.key.toLowerCase();
+
+        if (keyMap[key] === false) {
+            keyMap[key] = true;
+        }
+
+        console.log(keyMap, key);
+
+        var getAll = 0;
+
+        for (var key in keyMap) {
+            if (keyMap[key] === true) {
+                getAll++;
+            }
+        }
+
+        if (getAll == keys.length) {
+            callback();
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        var key = e.key.toLowerCase();
+        if (keyMap[key] === true) {
+            keyMap[key] = false;
+        }
+    });
+}
+
+addShortcutListener(() => {
+    console.log("Keybind");
+}, 'Control', 'Shift', 't');
+
+
 $(document).on('keydown', (e) => {
     // if ctrl + l, focus on the tab title
     if (e.ctrlKey && e.key == 'l') {
@@ -140,3 +221,7 @@ $(document).on('keydown', (e) => {
         }
     }
 });
+
+function icnsToPng(icnsBase64) {
+    return icnsBase64.replaceAll('icns', 'PNG');
+}
