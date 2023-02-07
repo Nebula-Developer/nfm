@@ -104,7 +104,6 @@ function navigateTab(tabID, directory, addToHistory = true) {
         for (var i = 0; i < fileListing.length; i++) {
             var file = fileListing[i];
             var fileDiv = await createFile(file);
-            console.log(fileDiv);
             addFileClickListener(fileDiv, file, tabID);
             tabContent.append(fileDiv);
         }
@@ -202,11 +201,16 @@ function addFileClickListener(fileElm, file, tabID) {
     }
 
     // When we drag a file to another program, it should think we're dragging the actual file, not the div
-    fileElm[0].addEventListener('dragstart', (ev) => {
+    fileElm[0].addEventListener('dragstart',
+    /**
+     * @param {DragEvent} ev
+     */
+    (ev) => {
         ev.dataTransfer.effectAllowed = 'copy'
         ev.preventDefault()
         ipcRenderer.send('ondragstart', file.path);
-        ev.dataTransfer.setData('text/plain', file.path);
+        // ev.dataTransfer.setData('text/plain', file.path);
+        ev.dataTransfer.files = selectedFiles.map((file) => file.path);
     });
 
     fileElm[0].addEventListener('dragover', (ev) => {
@@ -391,8 +395,9 @@ async function addTabDirChangeListener(tabID, directory) {
         // Dont use files.listDirectory because it's slow,
         // just use fs.readdir
         var newFiles = fs.readdirSync(directory);
-        
+
         if (newFiles.length != fileFetched.length || $(`.tab[tab-id="${tabID}"]`).find('.tab-content').children().length != newFiles.length) {
+            console.log("Reloading: " + directory + " because of change");
             fileFetched = newFiles;
             if (first < 2) first++;
             else refreshTab(tabID);
@@ -412,8 +417,13 @@ function handleTabWindowDrop(tabContent, tabID) {
     tabContent.addEventListener('drop', (ev) => {
         var tabDir = tabs[tabID].location;
         
-        for (var i = 0; i < ev.dataTransfer.files.length; i++) {
-            var file = ev.dataTransfer.files[i].path;
+        for (var i = 0; i < selectedFiles.length; i++) {
+            var file = selectedFiles[i].file;
+            var dirOfFile = path.dirname(file);
+            if (dirOfFile == tabDir) {
+                selectFile(selectedFiles[i].file, tabID);
+                return;
+            };
             moveFile(file, tabDir);
         }
 

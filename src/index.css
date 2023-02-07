@@ -168,5 +168,5 @@ div.file-icon i {
 }
 
 .file-dragover {
-  background: red;
+  border: 1px solid #2195f361;
 }
